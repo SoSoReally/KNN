@@ -4,7 +4,7 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Experimental.ParticleSystemJobs;
+using UnityEngine.ParticleSystemJobs;
 
 // Ideally you really would use something like ECS to visualize the point cloud
 // And query from a job component system
@@ -25,10 +25,10 @@ public class KnnVisualizationDemo : MonoBehaviour {
 	
 	ParticleSystem m_system;
 
-	NativeArray<float3> m_queryPositions;
+	NativeArray<FPVector3> m_queryPositions;
 	NativeArray<Color32> m_queryColors;
 
-	NativeArray<float3> m_points;
+	NativeArray<FPVector3> m_points;
 	NativeArray<int> m_results;
 
 	KnnContainer m_container;
@@ -36,10 +36,10 @@ public class KnnVisualizationDemo : MonoBehaviour {
 	NativeArray<RangeQueryResult> m_rangeResults;
 
 	void Start() {
-		m_system = GetComponent<ParticleSystem>();
+        m_system = GetComponent<ParticleSystem>();
 
 		m_system.Emit(ParticleCount);
-		m_points = new NativeArray<float3>(ParticleCount, Allocator.Persistent);
+		m_points = new NativeArray<FPVector3>(ParticleCount, Allocator.Persistent);
 
 		// Create a container that accelerates querying for neighbours
 		m_container = new KnnContainer(m_points, false, Allocator.Persistent); // Skip building for now. We rebuild every frame
@@ -56,47 +56,52 @@ public class KnnVisualizationDemo : MonoBehaviour {
 		m_queryPositions.Dispose();
 		m_queryColors.Dispose();
 	}
-
-	// [BurstCompile(CompileSynchronously = true)]
-	struct ParticleJob : IParticleSystemJob {
+    // [BurstCompile(CompileSynchronously = true)]
+    struct ParticleJob : IJobParticleSystem
+    {
 		[ReadOnly] public NativeArray<int> KnnResults;
-		public NativeArray<float3> Points;
+		public NativeArray<FPVector3> Points;
 
 		public NativeArray<Color32> Colors;
 		public int K;
 
-		public void ProcessParticleSystem(ParticleSystemJobData jobData) {
-			var colors = jobData.startColors;
-			var positions = jobData.positions;
+        public void Execute(ParticleSystemJobData jobData)
+        {
+            var colors = jobData.startColors;
+            var positions = jobData.positions;
 
-			for (int i = 0; i < jobData.count; ++i) {
-				Points[i] = new float3(positions.x[i], positions.y[i], positions.z[i]);
-			}
+            for (int i = 0; i < jobData.count; ++i)
+            {
+                Points[i] = new FPVector3(positions.x[i], positions.y[i], positions.z[i]);
+            }
 
-			// Set every particle to white first
-			for (int i = 0; i < jobData.count; i++) {
-				colors[i] = new Color32(0, 0, 0, 255);
-			}
+            // Set every particle to white first
+            for (int i = 0; i < jobData.count; i++)
+            {
+                colors[i] = new Color32(0, 0, 0, 255);
+            }
 
-			// Set all neighbours to result color
-			for (int i = 0; i < KnnResults.Length; i++) {
-				colors[KnnResults[i]] = Colors[i / K];
-			}
-		}
-	}
+            // Set all neighbours to result color
+            for (int i = 0; i < KnnResults.Length; i++)
+            {
+                colors[KnnResults[i]] = Colors[i / K];
+            }
+        }
+    }
 
-	struct ParticleRangeJob : IParticleSystemJob {
+	struct ParticleRangeJob : IJobParticleSystem
+    {
 		[ReadOnly] public NativeArray<RangeQueryResult> KnnResults;
 
-		public NativeArray<float3> Points;
+		public NativeArray<FPVector3> Points;
 		public NativeArray<Color32> Colors;
 
-		public void ProcessParticleSystem(ParticleSystemJobData jobData) {
+		public void Execute(ParticleSystemJobData jobData) {
 			var partColors = jobData.startColors;
 			var partPos = jobData.positions;
 
 			for (int i = 0; i < jobData.count; ++i) {
-				Points[i] = new float3(partPos.x[i], partPos.y[i], partPos.z[i]);
+				Points[i] = new FPVector3(partPos.x[i], partPos.y[i], partPos.z[i]);
 			}
 
 			// Set every particle to white first
@@ -115,81 +120,143 @@ public class KnnVisualizationDemo : MonoBehaviour {
 			}
 		}
 	}
-	
-	void Update() {
-		if (Mode == QueryMode.KNearest) {
-			// Update particles job to do the colors
-			m_system.SetJob(new ParticleJob {
+
+    private void OnParticleUpdateJobScheduled()
+    {
+        var rebuild = new KnnRebuildJob(m_container);
+        var rebuildHandle = rebuild.Schedule();
+
+        // Get all probe positions / colors
+        if (!m_queryPositions.IsCreated || m_queryPositions.Length != QueryProbe.All.Count)
+        {
+            if (m_queryPositions.IsCreated)
+            {
+                m_queryPositions.Dispose();
+                m_results.Dispose();
+                m_queryColors.Dispose();
+            }
+            m_queryPositions = new NativeArray<FPVector3>(QueryProbe.All.Count, Allocator.Persistent);
+            m_results = new NativeArray<int>(QueryK * QueryProbe.All.Count, Allocator.Persistent);
+            m_queryColors = new NativeArray<Color32>(QueryProbe.All.Count, Allocator.Persistent);
+
+            // Initialize all the range query results
+            m_rangeResults = new NativeArray<RangeQueryResult>(QueryProbe.All.Count, Allocator.Persistent);
+
+            // Each range query result object needs to declare upfront what the maximum number of points in range is
+            for (int i = 0; i < m_rangeResults.Length; ++i)
+            {
+                // Allow for a maximum of 1024 results
+                m_rangeResults[i] = new RangeQueryResult(1024, Allocator.Persistent);
+            }
+        }
+
+        for (int i = 0; i < QueryProbe.All.Count; i++)
+        {
+            var p = QueryProbe.All[i];
+            m_queryPositions[i] =  new FPVector3( p.transform.position.x,p.transform.position.y,p.transform.position.z);
+            m_queryColors[i] = p.Color;
+        }
+
+        switch (Mode)
+        {
+            case QueryMode.KNearest:
+                {
+                    // Do a KNN query
+                    var query = new QueryKNearestBatchJob(m_container, m_queryPositions, m_results);
+
+                    // Schedule query, dependent on the rebuild
+                    // We're only doing a very limited number of points - so allow each query to have it's own job
+                    query.ScheduleBatch(m_queryPositions.Length, 1, rebuildHandle).Complete();
+                    break;
+                }
+
+            case QueryMode.Range:
+                {
+                    // Do a range query
+                    var query = new QueryRangeBatchJob(m_container, m_queryPositions, QueryRange, m_rangeResults);
+
+                    // Schedule query, dependent on the rebuild
+                    // We're only doing a very limited number of points - so allow each query to have it's own job
+                    query.ScheduleBatch(m_queryPositions.Length, 1, rebuildHandle).Complete();
+                    break;
+                }
+        }
+
+        if (Mode == QueryMode.KNearest) {
+            // Update particles job to do the colors
+            var p = new ParticleJob {
 				KnnResults = m_results,
 				Points = m_points,
 				K = QueryK,
 				Colors = m_queryColors
-			});
+			}.Schedule(m_system);
+			p.Complete();
 		}
 		else {
 			// Update particles job to do the colors
-			m_system.SetJob(new ParticleRangeJob {
+			var p = new ParticleRangeJob {
 				KnnResults = m_rangeResults,
 				Points = m_points,
 				Colors = m_queryColors
-			});
+			}.Schedule(m_system);
+			p.Complete();
 		}
 	}
 
 	// After particle job
-	void LateUpdate() {
+	void Update() {
 		// Rebuild our datastructure
-		var rebuild = new KnnRebuildJob(m_container);
-		var rebuildHandle = rebuild.Schedule();
+		//var rebuild = new KnnRebuildJob(m_container);
+		//var rebuildHandle = rebuild.Schedule();
 
-		// Get all probe positions / colors
-		if (!m_queryPositions.IsCreated || m_queryPositions.Length != QueryProbe.All.Count) {
-			if (m_queryPositions.IsCreated) {
-				m_queryPositions.Dispose();
-				m_results.Dispose();
-				m_queryColors.Dispose();
-			}
+		//// Get all probe positions / colors
+		//if (!m_queryPositions.IsCreated || m_queryPositions.Length != QueryProbe.All.Count) {
+		//	if (m_queryPositions.IsCreated) {
+		//		m_queryPositions.Dispose();
+		//		m_results.Dispose();
+		//		m_queryColors.Dispose();
+		//	}
 
-			m_queryPositions = new NativeArray<float3>(QueryProbe.All.Count, Allocator.Persistent);
-			m_results = new NativeArray<int>(QueryK * QueryProbe.All.Count, Allocator.Persistent);
-			m_queryColors = new NativeArray<Color32>(QueryProbe.All.Count, Allocator.Persistent);
+		//	m_queryPositions = new NativeArray<FPVector3>(QueryProbe.All.Count, Allocator.Persistent);
+		//	m_results = new NativeArray<int>(QueryK * QueryProbe.All.Count, Allocator.Persistent);
+		//	m_queryColors = new NativeArray<Color32>(QueryProbe.All.Count, Allocator.Persistent);
 			
-			// Initialize all the range query results
-			m_rangeResults = new NativeArray<RangeQueryResult>(QueryProbe.All.Count, Allocator.Persistent);
+		//	// Initialize all the range query results
+		//	m_rangeResults = new NativeArray<RangeQueryResult>(QueryProbe.All.Count, Allocator.Persistent);
 
-			// Each range query result object needs to declare upfront what the maximum number of points in range is
-			for (int i = 0; i < m_rangeResults.Length; ++i) {
-				// Allow for a maximum of 1024 results
-				m_rangeResults[i] = new RangeQueryResult(1024, Allocator.Persistent);
-			}
-		}
+		//	// Each range query result object needs to declare upfront what the maximum number of points in range is
+		//	for (int i = 0; i < m_rangeResults.Length; ++i) {
+		//		// Allow for a maximum of 1024 results
+		//		m_rangeResults[i] = new RangeQueryResult(1024, Allocator.Persistent);
+		//	}
+		//}
 		
-		for (int i = 0; i < QueryProbe.All.Count; i++) {
-			var p = QueryProbe.All[i];
-			m_queryPositions[i] = p.transform.position;
-			m_queryColors[i] = p.Color;
-		}
+		//for (int i = 0; i < QueryProbe.All.Count; i++) {
+		//	var p = QueryProbe.All[i];
+		//	m_queryPositions[i] = p.transform.position;
+		//	m_queryColors[i] = p.Color;
+		//}
 		
-		switch (Mode) {
-			case QueryMode.KNearest: {
-				// Do a KNN query
-				var query = new QueryKNearestBatchJob(m_container, m_queryPositions, m_results);
+		//switch (Mode) {
+		//	case QueryMode.KNearest: {
+		//		// Do a KNN query
+		//		var query = new QueryKNearestBatchJob(m_container, m_queryPositions, m_results);
 
-				// Schedule query, dependent on the rebuild
-				// We're only doing a very limited number of points - so allow each query to have it's own job
-				query.ScheduleBatch(m_queryPositions.Length, 1, rebuildHandle).Complete();
-				break;
-			}
+		//		// Schedule query, dependent on the rebuild
+		//		// We're only doing a very limited number of points - so allow each query to have it's own job
+		//		query.ScheduleBatch(m_queryPositions.Length, 1, rebuildHandle).Complete();
+		//		break;
+		//	}
 
-			case QueryMode.Range: {
-				// Do a range query
-				var query = new QueryRangeBatchJob(m_container, m_queryPositions, QueryRange, m_rangeResults);
+		//	case QueryMode.Range: {
+		//		// Do a range query
+		//		var query = new QueryRangeBatchJob(m_container, m_queryPositions, QueryRange, m_rangeResults);
 			
-				// Schedule query, dependent on the rebuild
-				// We're only doing a very limited number of points - so allow each query to have it's own job
-				query.ScheduleBatch(m_queryPositions.Length, 1, rebuildHandle).Complete();
-				break;
-			}
-		}
+		//		// Schedule query, dependent on the rebuild
+		//		// We're only doing a very limited number of points - so allow each query to have it's own job
+		//		query.ScheduleBatch(m_queryPositions.Length, 1, rebuildHandle).Complete();
+		//		break;
+		//	}
+		//}
 	}
 }

@@ -43,7 +43,7 @@ namespace KNN {
 	public struct KnnContainer : IDisposable {
 		// We manage safety by our own sentinel. Disable unity's safety system for internal caches / arrays
 		[NativeDisableContainerSafetyRestriction]
-		public NativeArray<float3> Points;
+		public NativeArray<FPVector3> Points;
 
 		[NativeDisableContainerSafetyRestriction]
 		NativeArray<int> m_permutation;
@@ -87,8 +87,8 @@ namespace KNN {
 				return temp;
 			}
 
-			public void PushQueryNode(int index, float3 closestPoint, float3 queryPosition) {
-				float lengthsq = math.lengthsq(closestPoint - queryPosition);
+			public void PushQueryNode(int index, FPVector3 closestPoint, FPVector3 queryPosition) {
+				Fix64 lengthsq = (closestPoint - queryPosition).LengthSquared();
 				
 				MinHeap.PushObjMin(new QueryNode {
 					NodeIndex = index,
@@ -103,8 +103,8 @@ namespace KNN {
 			}
 		}
 
-		public KnnContainer(NativeArray<float3> points, bool buildNow, Allocator allocator) {
-			int nodeCountEstimate = 4 * (int) math.ceil(points.Length / (float) c_maxPointsPerLeafNode + 1) + 1;
+		public KnnContainer(NativeArray<FPVector3> points, bool buildNow, Allocator allocator) {
+			int nodeCountEstimate = 4 * (int) Fix64.Ceiling(points.Length / (Fix64) c_maxPointsPerLeafNode + 1) + 1;
 			Points = points;
 
 			// Both arrays are filled in as we go, so start with uninitialized mem
@@ -193,8 +193,8 @@ namespace KNN {
 		/// </summary>
 		/// <returns>Boundary of all Vector3 points</returns>
 		KdNodeBounds MakeBounds() {
-			var max = new float3(float.MinValue, float.MinValue, float.MinValue);
-			var min = new float3(float.MaxValue, float.MaxValue, float.MaxValue);
+			var max = new FPVector3(Fix64.MinValue, Fix64.MinValue, Fix64.MinValue);
+			var min = new FPVector3(Fix64.MaxValue, Fix64.MaxValue, Fix64.MaxValue);
 			int even = Points.Length & ~1; // calculate even Length
 
 			// min, max calculations
@@ -311,11 +311,11 @@ namespace KNN {
 
 			// center of bounding box
 			KdNodeBounds parentBounds = parent.Bounds;
-			float3 parentBoundsSize = parentBounds.Size;
+			FPVector3 parentBoundsSize = parentBounds.Size;
 
 			// Find axis where bounds are largest
 			int splitAxis = 0;
-			float axisSize = parentBoundsSize.x;
+			Fix64 axisSize = parentBoundsSize.x;
 
 			if (axisSize < parentBoundsSize.y) {
 				splitAxis = 1;
@@ -327,17 +327,17 @@ namespace KNN {
 			}
 
 			// Our axis min-max bounds
-			float boundsStart = parentBounds.Min[splitAxis];
-			float boundsEnd = parentBounds.Max[splitAxis];
+			Fix64 boundsStart = parentBounds.Min[splitAxis];
+			Fix64 boundsEnd = parentBounds.Max[splitAxis];
 
 			// Calculate the spiting coords
-			float splitPivot = CalculatePivot(parent.Start, parent.End, boundsStart, boundsEnd, splitAxis);
+			Fix64 splitPivot = CalculatePivot(parent.Start, parent.End, boundsStart, boundsEnd, splitAxis);
 
 			// 'Spiting' array to two sub arrays
 			int splittingIndex = Partition(parent.Start, parent.End, splitPivot, splitAxis);
 
 			// Negative / Left node
-			float3 negMax = parentBounds.Max;
+			FPVector3 negMax = parentBounds.Max;
 			negMax[splitAxis] = splitPivot;
 
 			var bounds = parentBounds;
@@ -348,7 +348,7 @@ namespace KNN {
 			parent.PartitionCoordinate = splitPivot;
 			
 			// Positive / Right node
-			float3 posMin = parentBounds.Min;
+			FPVector3 posMin = parentBounds.Min;
 			posMin[splitAxis] = splitPivot;
 
 			bounds = parentBounds;
@@ -370,19 +370,19 @@ namespace KNN {
 		/// 3b. If they are not, then points are only on left or right bound.
 		/// 4. Move the splitting pivot so that it shrinks part with points completely (calculate min or max dependent) and return.
 		/// </summary>
-		float CalculatePivot(int start, int end, float boundsStart, float boundsEnd, int axis) {
+		Fix64 CalculatePivot(int start, int end, Fix64 boundsStart, Fix64 boundsEnd, int axis) {
 			//! sliding midpoint rule
-			float midPoint = (boundsStart + boundsEnd) / 2.0f;
+			Fix64 midPoint = (boundsStart + boundsEnd) / 2.0f;
 
 			bool negative = false;
 			bool positive = false;
 
-			float negMax = float.MinValue;
-			float posMin = float.MaxValue;
+			Fix64 negMax = Fix64.MinValue;
+			Fix64 posMin = Fix64.MaxValue;
 
 			// this for loop section is used both for sorted and unsorted data
 			for (int i = start; i < end; i++) {
-				float val = Points[m_permutation[i]][axis];
+				Fix64 val = Points[m_permutation[i]][axis];
 
 				if (val < midPoint) {
 					negative = true;
@@ -397,7 +397,7 @@ namespace KNN {
 
 			if (negative) {
 				for (int i = start; i < end; i++) {
-					float val = Points[m_permutation[i]][axis];
+					Fix64 val = Points[m_permutation[i]][axis];
 
 					if (negMax < val) {
 						negMax = val;
@@ -408,7 +408,7 @@ namespace KNN {
 			}
 
 			for (int i = start; i < end; i++) {
-				float val = Points[m_permutation[i]][axis];
+				Fix64 val = Points[m_permutation[i]][axis];
 
 				if (posMin > val) {
 					posMin = val;
@@ -433,7 +433,7 @@ namespace KNN {
 		/// left = [start, pivot),
 		/// right = [pivot, end)
 		/// </returns>
-		int Partition(int start, int end, float partitionPivot, int axis) {
+		int Partition(int start, int end, Fix64 partitionPivot, int axis) {
 			// note: increasing right pointer is actually decreasing!
 			int lp = start - 1; // left pointer (negative side)
 			int rp = end; // right pointer (positive side)
@@ -460,7 +460,7 @@ namespace KNN {
 			}
 		}
 		
-		public void QueryRange(float3 queryPosition, float radius, NativeList<int> result) {
+		public void QueryRange(FPVector3 queryPosition, Fix64 radius, NativeList<int> result) {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 			AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
 #endif
@@ -469,8 +469,8 @@ namespace KNN {
 			var temp = KnnQueryTemp.Create(32);
 			
 			// Biggest Smallest Squared Radius
-			float bssr = radius * radius;
-			float3 rootClosestPoint = RootNode.Bounds.ClosestPoint(queryPosition);
+			Fix64 bssr = radius * radius;
+			FPVector3 rootClosestPoint = RootNode.Bounds.ClosestPoint(queryPosition);
 			
 			temp.PushQueryNode(m_rootNodeIndex[0], rootClosestPoint, queryPosition);
 			
@@ -485,8 +485,8 @@ namespace KNN {
 
 				if (!node.Leaf) {
 					int partitionAxis = node.PartitionAxis;
-					float partitionCoord = node.PartitionCoordinate;
-					float3 tempClosestPoint = queryNode.TempClosestPoint;
+					Fix64 partitionCoord = node.PartitionCoordinate;
+					FPVector3 tempClosestPoint = queryNode.TempClosestPoint;
 
 					if (tempClosestPoint[partitionAxis] - partitionCoord < 0) {
 						// we already know we are on the side of negative bound/node,
@@ -517,7 +517,7 @@ namespace KNN {
 				} else {
 					for (int i = node.Start; i < node.End; i++) {
 						int index = m_permutation[i];
-						float sqrDist = math.lengthsq(Points[index] - queryPosition);
+						Fix64 sqrDist = (Points[index] - queryPosition).LengthSquared();
 
 						if (sqrDist <= bssr) {
 							// Unlike the k-query we want to keep _all_ objects in range
@@ -539,17 +539,17 @@ namespace KNN {
 			temp.Dispose();
 		}
 
-		public void QueryKNearest(float3 queryPosition, NativeSlice<int> result) {
+		public void QueryKNearest(FPVector3 queryPosition, NativeSlice<int> result) {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 			AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
 #endif
 			
 			var temp = KnnQueryTemp.Create(result.Length);
 			int k = result.Length;
-			
+
 			// Biggest Smallest Squared Radius
-			float bssr = float.PositiveInfinity;
-			float3 rootClosestPoint = RootNode.Bounds.ClosestPoint(queryPosition);
+			Fix64 bssr = Fix64.MaxValue;
+			FPVector3 rootClosestPoint = RootNode.Bounds.ClosestPoint(queryPosition);
 			
 			temp.PushQueryNode(m_rootNodeIndex[0], rootClosestPoint, queryPosition);
 			
@@ -564,8 +564,8 @@ namespace KNN {
 
 				if (!node.Leaf) {
 					int partitionAxis = node.PartitionAxis;
-					float partitionCoord = node.PartitionCoordinate;
-					float3 tempClosestPoint = queryNode.TempClosestPoint;
+					Fix64 partitionCoord = node.PartitionCoordinate;
+					FPVector3 tempClosestPoint = queryNode.TempClosestPoint;
 
 					if (tempClosestPoint[partitionAxis] - partitionCoord < 0) {
 						// we already know we are on the side of negative bound/node,
@@ -595,7 +595,7 @@ namespace KNN {
 				} else {
 					for (int i = node.Start; i < node.End; i++) {
 						int index = m_permutation[i];
-						float sqrDist = math.lengthsq(Points[index] - queryPosition);
+						Fix64 sqrDist = (Points[index] - queryPosition).LengthSquared();
 
 						if (sqrDist <= bssr) {
 							temp.MaxHeap.PushObjMax(index, sqrDist);

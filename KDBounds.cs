@@ -26,13 +26,13 @@ using Unity.Mathematics;
 
 namespace KNN.Internal {
     public struct KdNodeBounds {
-        public float3 Min;
-        public float3 Max;
+        public FPVector3 Min;
+        public FPVector3 Max;
 
-        public float3 Size => Max - Min;
+        public FPVector3 Size => Max - Min;
 
-		public float3 ClosestPoint(float3 point) {
-			return math.clamp(point, Min, Max);
+		public FPVector3 ClosestPoint(FPVector3 point) {
+			return FPMath.Clamp(point, Min, Max);
 		}
     }
 }

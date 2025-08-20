@@ -14,9 +14,9 @@ namespace KNN.Jobs {
 		[ReadOnly] KnnContainer m_container;
 		[WriteOnly] NativeSlice<int> m_result;
 
-		float3 m_queryPosition;
+		FPVector3 m_queryPosition;
 
-		public QueryKNearestJob(KnnContainer container, float3 queryPosition, NativeSlice<int> result) {
+		public QueryKNearestJob(KnnContainer container, FPVector3 queryPosition, NativeSlice<int> result) {
 			m_result = result;
 			m_queryPosition = queryPosition;
 			m_container = container;
@@ -32,10 +32,10 @@ namespace KNN.Jobs {
 		[ReadOnly] KnnContainer m_container;
 		[WriteOnly] NativeList<int> m_result;
 
-		float m_range;
-		float3 m_queryPosition;
+		Fix64 m_range;
+		FPVector3 m_queryPosition;
 
-		public QueryRangeJob(KnnContainer container, float3 queryPosition, float range, NativeList<int> result) {
+		public QueryRangeJob(KnnContainer container, FPVector3 queryPosition, Fix64 range, NativeList<int> result) {
 			m_result = result;
 			m_range = range;
 			m_queryPosition = queryPosition;
@@ -51,7 +51,7 @@ namespace KNN.Jobs {
 	[BurstCompile(CompileSynchronously = true)]
 	public struct QueryKNearestBatchJob : IJobParallelForBatch {
 		[ReadOnly] KnnContainer m_container;
-		[ReadOnly] NativeSlice<float3> m_queryPositions;
+		[ReadOnly] NativeSlice<FPVector3> m_queryPositions;
 
 		// Unity really doesn't like it when we write to the same underlying array
 		// Even if slices don't overlap... So we're just being dangerous here
@@ -60,7 +60,7 @@ namespace KNN.Jobs {
 
 		int m_k;
 
-		public QueryKNearestBatchJob(KnnContainer container, NativeArray<float3> queryPositions, NativeSlice<int> results) {
+		public QueryKNearestBatchJob(KnnContainer container, NativeArray<FPVector3> queryPositions, NativeSlice<int> results) {
 			m_container = container;
 			m_queryPositions = queryPositions;
 			m_results = results;
@@ -122,13 +122,13 @@ namespace KNN.Jobs {
 	[BurstCompile(CompileSynchronously = true)]
 	public struct QueryRangeBatchJob : IJobParallelForBatch {
 		[ReadOnly] KnnContainer m_container;
-		[ReadOnly] NativeSlice<float3> m_queryPositions;
+		[ReadOnly] NativeSlice<FPVector3> m_queryPositions;
 
-		float m_range;
+		Fix64 m_range;
 
 		public NativeArray<RangeQueryResult> Results;
 
-		public QueryRangeBatchJob(KnnContainer container, NativeArray<float3> queryPositions, float range, NativeArray<RangeQueryResult> results) {
+		public QueryRangeBatchJob(KnnContainer container, NativeArray<FPVector3> queryPositions, Fix64 range, NativeArray<RangeQueryResult> results) {
 			m_container = container;
 			m_queryPositions = queryPositions;
 			m_range = range;

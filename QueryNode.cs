@@ -27,7 +27,7 @@ using Unity.Mathematics;
 namespace KNN.Internal {
     public struct QueryNode {
         public int NodeIndex;
-        public float3 TempClosestPoint;
-        public float Distance;
+        public FPVector3 TempClosestPoint;
+        public Fix64 Distance;
     }
 }

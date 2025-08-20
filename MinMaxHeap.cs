@@ -48,12 +48,12 @@ namespace KNN.Internal {
 		T* keys; //objects
 		
 		[NativeDisableContainerSafetyRestriction]
-		float* values;
+		Fix64* values;
 
 		public int Count;
 		int m_capacity;
 
-		public float HeadValue => values[1];
+		public Fix64 HeadValue => values[1];
 		T HeadKey => keys[1];
 
 		public bool IsFull => Count == m_capacity;
@@ -66,12 +66,12 @@ namespace KNN.Internal {
 			
 			// Now alloc starting arrays
 			m_capacity = startCapacity;
-			values = UnsafeUtilityEx.AllocArray<float>(startCapacity + 1, m_allocator);
+			values = UnsafeUtilityEx.AllocArray<Fix64>(startCapacity + 1, m_allocator);
 			keys = UnsafeUtilityEx.AllocArray<T>(startCapacity + 1, m_allocator);
 		}
 		
 		void Swap(int indexA, int indexB) {
-			float tempVal = values[indexA];
+			Fix64 tempVal = values[indexA];
 			values[indexA] = values[indexB];
 			values[indexB] = tempVal;
 			
@@ -89,7 +89,7 @@ namespace KNN.Internal {
 
 		public void Resize(int newSize) {
 			// Allocate more space
-			var newValues = UnsafeUtilityEx.AllocArray<float>(newSize + 1, m_allocator);
+			var newValues = UnsafeUtilityEx.AllocArray<Fix64>(newSize + 1, m_allocator);
 			var newKeys = UnsafeUtilityEx.AllocArray<T>(newSize + 1, m_allocator);
 			
 			// Copy over old arrays
@@ -202,7 +202,7 @@ namespace KNN.Internal {
 			}
 		}
 
-		public void PushObjMax(T key, float val) {
+		public void PushObjMax(T key, Fix64 val) {
 			// if heap full
 			if (Count == m_capacity) {
 				// if Heads priority is smaller than input priority, then ignore that item
@@ -220,7 +220,7 @@ namespace KNN.Internal {
 			}
 		}
 
-		public void PushObjMin(T key, float val) {
+		public void PushObjMin(T key, Fix64 val) {
 			// if heap full
 			if (Count == m_capacity) {
 				// if Heads priority is smaller than input priority, then ignore that item

@@ -11,15 +11,17 @@ public static class KnnApiDemo  {
 		Profiler.BeginSample("Test Query");
 		
 		// First let's create a random point cloud
-		var points = new NativeArray<float3>(100000, Allocator.Persistent);
+		var points = new NativeArray<FPVector3>(100000, Allocator.Persistent);
 		var rand = new Random(123456);
 		for (int i = 0; i < points.Length; ++i) {
-			points[i] = rand.NextFloat3();
+			var value = rand.NextFloat3();
+
+            points[i] = new FPVector3(value.x,value.y,value.z);
 		}
 
 		// Number of neighbours we want to query
 		const int kNeighbours = 10;
-		float3 queryPosition = float3.zero;
+		FPVector3 queryPosition = FPVector3.Zero;
 		
 		Profiler.BeginSample("Build");
 		// Create a container that accelerates querying for neighbours.
@@ -55,10 +57,12 @@ public static class KnnApiDemo  {
 		var results = new NativeArray<int>(queryPoints * kNeighbours, Allocator.TempJob);
 		
 		// Query at a few random points
-		var queryPositions = new NativeArray<float3>(queryPoints, Allocator.TempJob);
+		var queryPositions = new NativeArray<FPVector3>(queryPoints, Allocator.TempJob);
 		for (int i = 0; i < queryPoints; ++i) {
-			queryPositions[i] = rand.NextFloat3() * 0.1f;
-		}	
+			 var value = rand.NextFloat3() * 0.1f;
+			queryPositions[i] = new FPVector3(value.x, value.y, value.z);
+
+        }	
 
 		Profiler.BeginSample("Batch Query");
 		// Fire up job to get results for all points

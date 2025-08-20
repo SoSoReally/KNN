@@ -30,7 +30,7 @@ namespace KNN.Internal {
 		public int End;
 		
 		public int PartitionAxis;
-		public float PartitionCoordinate;
+		public Fix64 PartitionCoordinate;
 
 		public int NegativeChildIndex;
 		public int PositiveChildIndex;
